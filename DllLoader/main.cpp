@@ -2,7 +2,7 @@
 #include <iostream>
 
 
-int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+int main() {
 	HMODULE hDLL = LoadLibraryA("vhook.dll");
 	if (hDLL == NULL) {
 		return 1;
