@@ -118,27 +118,36 @@ void StartNamedPipeServer() {
 
 
 
-int main() {
-	std::string szServiceFile = "C:\\vedr\\vDriver.sys";
-	std::string szServiceName = "VEDR Kernel";
-
-	if (!std::filesystem::exists(szServiceFile)) {
-		printf("[!] Driver file %s does not exist!\n", szServiceFile.c_str());
-		return 0;
+int main(int argc, char* argv[]) {
+	BOOL bKernel = FALSE;
+	if (argc == 2 && std::string(argv[1]) == "kernel") {
+		bKernel = TRUE;
 	}
-
-	printf("[+] Driver: %s\n", szServiceFile.c_str());
-	printf("[+] Service Name: %s\n", szServiceName.c_str());
-
-	printf("[+] Attempting to start vEDR kernel service: %s\n", szServiceName.c_str());
-	if (LoadService(szServiceName, szServiceName, szServiceFile) == FALSE) {
-		printf("[!] An error occured loading kernel service!\n");
+	else {
+		bKernel = FALSE;
 	}
+	if (bKernel) {
+		std::string szServiceFile = "C:\\vedr\\vDriver.sys";
+		std::string szServiceName = "VEDR Kernel";
 
-	if (StartKernelService(szServiceName) == FALSE) {
-		printf("[!] An error occured starting kernel service!\n");
+		if (!std::filesystem::exists(szServiceFile)) {
+			printf("[!] Driver file %s does not exist!\n", szServiceFile.c_str());
+			return 0;
+		}
+
+		printf("[+] Driver: %s\n", szServiceFile.c_str());
+		printf("[+] Service Name: %s\n", szServiceName.c_str());
+
+		printf("[+] Attempting to start vEDR kernel service: %s\n", szServiceName.c_str());
+		if (LoadService(szServiceName, szServiceName, szServiceFile) == FALSE) {
+			printf("[!] An error occured loading kernel service!\n");
+		}
+
+		if (StartKernelService(szServiceName) == FALSE) {
+			printf("[!] An error occured starting kernel service!\n");
+		}
+		printf("[+] vEDR Driver loaded and running!\n");
 	}
-	printf("[+] vEDR Driver loaded and running!\n");
 
 	printf("[+] Staring named pipe server...\n");
 

