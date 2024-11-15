@@ -127,7 +127,6 @@ DWORD NTAPI HookedNtWriteVirtualMemory(
         if (pid != 0) {
             // check if we write to the previously allocated memory
             if (processTrackingMap.find(pid) != processTrackingMap.end()) {
-                Logger::LogMessage("NtWriteVirtualMemory called on previously allocated PID: " + std::to_string(pid));
                 auto& trackingInfo = processTrackingMap[pid];
                 if (trackingInfo.allocatedExecutableMemory) {
                     Logger::LogMessage("NtWriteVirtualMemory called on executable memory for PID: " + std::to_string(pid) + " Potential code injection detected!");
@@ -135,8 +134,6 @@ DWORD NTAPI HookedNtWriteVirtualMemory(
                 }
             }
         }
-        auto& trackingInfo = processTrackingMap[pid];
-        trackingInfo.allocatedExecutableMemory = true;
     }
 
     return pOriginalNtWriteVirtualMemory(ProcessHandle, BaseAddress, Buffer, NumberOfBytesToWrite, NumberOfBytesWritten);
@@ -163,8 +160,6 @@ HANDLE WINAPI HookedCreateRemoteThread(
                 }
             }
         }
-        auto& trackingInfo = processTrackingMap[pid];
-        trackingInfo.allocatedExecutableMemory = true;
     }
 
     return pOriginalCreateRemoteThread(hProcess, lpThreadAttributes, dwStackSize, lpStartAddress, lpParameter, dwCreationFlags, lpThreadId);
@@ -176,7 +171,7 @@ HANDLE WINAPI HookedOpenProcess(
 
     if (hooked) {
         if (dwDesiredAccess & PROCESS_ALL_ACCESS) {
-            Logger::LogMessage("Suspicious OpenProcess call with PROCESS_ALL ACCCESS to PID:" + std::to_string(dwProcessId));
+            Logger::LogMessage("Suspicious OpenProcess call with PROCESS_ALL_ACCESS to PID:" + std::to_string(dwProcessId));
         }
     }
     return pOriginalOpenProcess(dwDesiredAccess, bInheritHandle, dwProcessId);
